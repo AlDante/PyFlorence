@@ -1,6 +1,3 @@
-import os
-from unittest.mock import patch
-
 '''
 Patched version of the Florence example from HuggingFace to not use flash_attn. (Which
 requires CUDA and doesn't really work on Apple).
@@ -11,12 +8,29 @@ https://huggingface.co/microsoft/Florence-2-large-ft
 https://huggingface.co/microsoft/Florence-2-large/blob/main/sample_inference.ipynb
 '''
 
+import copy
+import os
+import random
+from unittest.mock import patch
+
+import numpy as np
+
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModelForCausalLM, AutoProcessor
 from transformers.dynamic_module_utils import get_imports
 
 URL = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
+MODEL = "microsoft/Florence-2-large-ft"
+
+EBUDIR="/Users/david/Downloads/Bridge/EBU/"
+EBUNAME="1946-09"
+
+EBUPNGSUFFIX= ".png"
+EBUPNGPATH= EBUDIR + EBUNAME + EBUPNGSUFFIX
+
+colormap = ['blue','orange','green','purple','brown','pink','gray','olive','cyan','red',
+            'lime','indigo','violet','aqua','magenta','coral','gold','tan','skyblue']
 
 def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     """Work around for https://huggingface.co/microsoft/phi-1_5/discussions/72."""
@@ -27,14 +41,22 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
-with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+def draw_ocr_bboxes(image, prediction):
+    scale = 1
+    draw = ImageDraw.Draw(image)
+    bboxes, labels = prediction['quad_boxes'], prediction['labels']
+    for box, label in zip(bboxes, labels):
+        color = random.choice(colormap)
+        new_box = (np.array(box) * scale).tolist()
+        draw.polygon(new_box, width=3, outline=color)
+        draw.text((new_box[0]+8, new_box[1]+2),
+                    "{}".format(label),
+                    align="right",
+                    fill=color)
+    # display(image)
+    return image
 
-    model = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-large-ft", trust_remote_code=True)
-    processor = AutoProcessor.from_pretrained("microsoft/Florence-2-large-ft", trust_remote_code=True)
-
-image = Image.open(requests.get(URL, stream=True).raw)
-
-def run_example(prompt):
+def run_example(prompt: str, image: Image):
 
     inputs = processor(text=prompt, images=image, return_tensors="pt")
     generated_ids = model.generate(
@@ -47,7 +69,7 @@ def run_example(prompt):
 
     parsed_answer = processor.post_process_generation(generated_text, task=prompt, image_size=(image.width, image.height))
 
-    print(parsed_answer)
+    return parsed_answer
 
 '''
 
@@ -74,8 +96,7 @@ def draw_ocr_bboxes(image, prediction):
         draw.polygon(new_box, width=3, outline=color)
         draw.text((new_box[0]+8, new_box[1]+2),
                     "{}".format(label),
-                    align="right",
-        
+                    align="right",      
                     fill=color)
     display(image)
 output_image = copy.deepcopy(image)
@@ -84,5 +105,27 @@ draw_ocr_bboxes(output_image, results['<OCR_WITH_REGION>'])
 '''
 
 if __name__ == "__main__":
-    prompt = "<MORE_DETAILED_CAPTION>"
-    run_example(prompt)
+    # Disable parallelism to avoid this error
+    # "huggingface/tokenizers: The current process just got forked, after parallelism has already been used."
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+        model = AutoModelForCausalLM.from_pretrained(MODEL, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(MODEL, trust_remote_code=True)
+
+    # image = Image.open(requests.get(URL, stream=True).raw)
+    image = Image.open(EBUPNGPATH)
+    #image.show()
+
+
+    '''
+    Huggingface caches models. Default directory is here: ~/.cache/huggingface/hub
+    https://stackoverflow.com/questions/63312859/how-to-change-huggingface-transformers-default-cache-directory
+    '''
+    prompt = "<OCR_WITH_REGION>"
+    results = run_example(prompt, image)
+
+    output_image = copy.deepcopy(image)
+    labelled_image = draw_ocr_bboxes(output_image, results['<OCR_WITH_REGION>'])
+    image.show()
+
