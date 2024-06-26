@@ -8,16 +8,20 @@ https://huggingface.co/microsoft/Florence-2-large-ft
 https://huggingface.co/microsoft/Florence-2-large/blob/main/sample_inference.ipynb
 '''
 
-import copy
 import os
-import random
+import sys
+import uuid
+
 from unittest.mock import patch
+
+import copy
+import random
+import requests
 
 import numpy as np
 
-import requests
 from PIL import Image, ImageDraw, ImageFont
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoProcessor, PreTrainedTokenizerFast
 from transformers.dynamic_module_utils import get_imports
 
 URL = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
@@ -41,7 +45,7 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
-def draw_ocr_bboxes(image, prediction):
+def draw_ocr_bboxes(image: Image, prediction):
     scale = 1
     draw = ImageDraw.Draw(image)
     bboxes, labels = prediction['quad_boxes'], prediction['labels']
@@ -54,9 +58,16 @@ def draw_ocr_bboxes(image, prediction):
                     align="right",
                     fill=color)
     # display(image)
+    #image.show()
+    #image.save(sys.stdout, "PNG")
+
+    pngname = EBUNAME+"-"+str(uuid.uuid4())+EBUPNGSUFFIX
+
+    image.save(pngname, "PNG")
+
     return image
 
-def run_example(prompt: str, image: Image):
+def run_example(prompt: str, image: Image, processor: PreTrainedTokenizerFast):
 
     inputs = processor(text=prompt, images=image, return_tensors="pt")
     generated_ids = model.generate(
@@ -105,27 +116,28 @@ draw_ocr_bboxes(output_image, results['<OCR_WITH_REGION>'])
 '''
 
 if __name__ == "__main__":
-    # Disable parallelism to avoid this error
+    # Disable parallelism to avoid the following error
     # "huggingface/tokenizers: The current process just got forked, after parallelism has already been used."
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
         model = AutoModelForCausalLM.from_pretrained(MODEL, trust_remote_code=True)
-        processor = AutoProcessor.from_pretrained(MODEL, trust_remote_code=True)
+        processor : PreTrainedTokenizerFast = AutoProcessor.from_pretrained(MODEL, trust_remote_code=True)
 
-    # image = Image.open(requests.get(URL, stream=True).raw)
-    image = Image.open(EBUPNGPATH)
-    #image.show()
+        # image = Image.open(requests.get(URL, stream=True).raw)
+        image = Image.open(EBUPNGPATH)
+        #image.show()
 
+        '''
+        Huggingface caches models. Default directory is here: ~/.cache/huggingface/hub
+        https://stackoverflow.com/questions/63312859/how-to-change-huggingface-transformers-default-cache-directory
+        '''
+        prompt = "<OCR_WITH_REGION>"
+        #prompt = "<OPEN_VOCABULARY_DETECTION>"
+        results = run_example(prompt, image, processor)
+        print(results)
 
-    '''
-    Huggingface caches models. Default directory is here: ~/.cache/huggingface/hub
-    https://stackoverflow.com/questions/63312859/how-to-change-huggingface-transformers-default-cache-directory
-    '''
-    prompt = "<OCR_WITH_REGION>"
-    results = run_example(prompt, image)
-
-    output_image = copy.deepcopy(image)
-    labelled_image = draw_ocr_bboxes(output_image, results['<OCR_WITH_REGION>'])
-    image.show()
+        output_image = copy.deepcopy(image)
+        labelled_image = draw_ocr_bboxes(output_image, results[prompt])
+        #image.show()
 
