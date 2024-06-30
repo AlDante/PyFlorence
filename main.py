@@ -6,6 +6,10 @@ Patch discussion: https://huggingface.co/microsoft/Florence-2-large-ft/discussio
 Model example
 https://huggingface.co/microsoft/Florence-2-large-ft
 https://huggingface.co/microsoft/Florence-2-large/blob/main/sample_inference.ipynb
+
+
+Nougat
+https://github.com/facebookresearch/nougat
 '''
 
 import os
@@ -60,10 +64,6 @@ def draw_ocr_bboxes(image: Image, prediction):
     # display(image)
     #image.show()
     #image.save(sys.stdout, "PNG")
-
-    pngname = EBUNAME+"-"+str(uuid.uuid4())+EBUPNGSUFFIX
-
-    image.save(pngname, "PNG")
 
     return image
 
@@ -139,5 +139,9 @@ if __name__ == "__main__":
 
         output_image = copy.deepcopy(image)
         labelled_image = draw_ocr_bboxes(output_image, results[prompt])
+        pngname = EBUNAME + "-" + str(uuid.uuid4()) + EBUPNGSUFFIX
+
+        labelled_image.save(pngname, "PNG")
+
         #image.show()
 
